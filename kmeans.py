@@ -1,4 +1,8 @@
 import numpy as np
+"""
+Download voc 2012_train.txt from here
+http://techworldaj.blogspot.com/2018/03/yoloyou-live-only-once-object-detection.html
+"""
 
 
 class YOLO_Kmeans:
