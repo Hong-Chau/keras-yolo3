@@ -109,3 +109,5 @@ ENV/
 
 # file of macOS
 .DS_Store
+# VOC 2012 dataset
+VOCdevkit/
