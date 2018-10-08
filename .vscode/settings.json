@@ -1,0 +1,9 @@
+// Workspace settings
+{
+    "files.exclude": {
+        "**/*.png": true,
+        "**/*.ipynb": true,
+        "**/*.weights": true,
+        "**/*.cfg": true
+    }
+}
