@@ -251,13 +251,18 @@ def preprocess_true_boxes(true_boxes, input_shape, anchors, num_classes):
 
     true_boxes = np.array(true_boxes, dtype='float32')
     input_shape = np.array(input_shape, dtype='int32')
+    # x,y is of center of boxes, w,h is the width and height of boxes
     boxes_xy = (true_boxes[..., 0:2] + true_boxes[..., 2:4]) // 2
     boxes_wh = true_boxes[..., 2:4] - true_boxes[..., 0:2]
+    # normalize true box into image coordinates (0,1)
     true_boxes[..., 0:2] = boxes_xy/input_shape[::-1]
     true_boxes[..., 2:4] = boxes_wh/input_shape[::-1]
 
+    # number of images in the batch, or batch_size
     m = true_boxes.shape[0]
-    grid_shapes = [input_shape//{0:32, 1:16, 2:8}[l] for l in range(num_layers)]
+    layer2stride = {0:32, 1:16, 2:8}
+    grid_shapes = [input_shape//layer2stride[l] for l in range(num_layers)]
+    # initialize y_true for correct output shapes
     y_true = [np.zeros((m,grid_shapes[l][0],grid_shapes[l][1],len(anchor_mask[l]),5+num_classes),
         dtype='float32') for l in range(num_layers)]
 
@@ -276,6 +281,8 @@ def preprocess_true_boxes(true_boxes, input_shape, anchors, num_classes):
         box_maxes = wh / 2.
         box_mins = -box_maxes
 
+        # assume in perfect case, two centers of anchor and true_box are coincide, what is IoU? 
+        # => find best anchor size for a true_box
         intersect_mins = np.maximum(box_mins, anchor_mins)
         intersect_maxes = np.minimum(box_maxes, anchor_maxes)
         intersect_wh = np.maximum(intersect_maxes - intersect_mins, 0.)
@@ -287,13 +294,21 @@ def preprocess_true_boxes(true_boxes, input_shape, anchors, num_classes):
         # Find best anchor for each true box
         best_anchor = np.argmax(iou, axis=-1)
 
+        # b is image number in batch
+        # t is number of true boxes in image
         for t, n in enumerate(best_anchor):
             for l in range(num_layers):
                 if n in anchor_mask[l]:
+                    # find responsible cell
                     i = np.floor(true_boxes[b,t,0]*grid_shapes[l][1]).astype('int32')
                     j = np.floor(true_boxes[b,t,1]*grid_shapes[l][0]).astype('int32')
+                    # index of best anchor in the best layer containing the best anchor 
                     k = anchor_mask[l].index(n)
+                    # index of class
                     c = true_boxes[b,t, 4].astype('int32')
+                    # if there is an anchor in a cell which is best fitted to multi true_boxes
+                    # => has same i,j,k index for different t
+                    # => former will be replaced by latter
                     y_true[l][b, j, i, k, 0:4] = true_boxes[b,t, 0:4]
                     y_true[l][b, j, i, k, 4] = 1
                     y_true[l][b, j, i, k, 5+c] = 1
