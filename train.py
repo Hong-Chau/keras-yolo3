@@ -179,6 +179,9 @@ def data_generator(annotation_lines, batch_size, input_shape, anchors, num_class
         image_data = np.array(image_data)
         box_data = np.array(box_data)
         y_true = preprocess_true_boxes(box_data, input_shape, anchors, num_classes)
+        # use customized technich for computing Yolo loss.
+        # image_data(image) + y_true (true label) = new input => output = Yolo_loss
+        # np.zeros(batch_size)(batch_size) = new true label => optional
         yield [image_data, *y_true], np.zeros(batch_size)
 
 def data_generator_wrapper(annotation_lines, batch_size, input_shape, anchors, num_classes):

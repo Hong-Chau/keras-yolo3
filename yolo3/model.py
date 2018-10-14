@@ -137,6 +137,9 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
         feats, [-1, grid_shape[0], grid_shape[1], num_anchors, num_classes + 5])
 
     # Adjust preditions to each spatial grid point and anchor size.
+    # box_xy is the center of predicted box, in image coordinates. They are bx,by in article
+    # box_wh is bw, bh in article.
+    # feats, or output of model_body, is tx, ty, tw, th. sigmoid(feats) => box confidence, and classes's confidence.
     box_xy = (K.sigmoid(feats[..., :2]) + grid) / K.cast(grid_shape[::-1], K.dtype(feats))
     box_wh = K.exp(feats[..., 2:4]) * anchors_tensor / K.cast(input_shape[::-1], K.dtype(feats))
     box_confidence = K.sigmoid(feats[..., 4:5])
@@ -385,17 +388,26 @@ def yolo_loss(args, anchors, num_classes, ignore_thresh=.5, print_loss=False):
     mf = K.cast(m, K.dtype(yolo_outputs[0]))
 
     for l in range(num_layers):
+        # object_mask = 1 for object cell
         object_mask = y_true[l][..., 4:5]
+        # true class probs = 1 for class of object cell
         true_class_probs = y_true[l][..., 5:]
 
+        # raw_pred, or output of model_body, is tx, ty, tw, th. sigmoid(raw_pred) => box confidence, and classes's confidence.
         grid, raw_pred, pred_xy, pred_wh = yolo_head(yolo_outputs[l],
              anchors[anchor_mask[l]], num_classes, input_shape, calc_loss=True)
         pred_box = K.concatenate([pred_xy, pred_wh])
 
         # Darknet raw box to calculate loss.
+        # y_true x,y,w,h are normalized in image coordinate
+        # y_true for x,y is true value for bx, bx, normalized in image coordinates in article.
+        # y_true for w,h is true value for bw, bh, normalized in image coordinates in article.
+        # raw_true_xy is true value for sigmoid(tx), sigmoid(ty), from 0=>1, is center position in grid coordinate in article.
+        # raw_true_wh is true value for tw, th in article.
         raw_true_xy = y_true[l][..., :2]*grid_shapes[l][::-1] - grid
         raw_true_wh = K.log(y_true[l][..., 2:4] / anchors[anchor_mask[l]] * input_shape[::-1])
         raw_true_wh = K.switch(object_mask, raw_true_wh, K.zeros_like(raw_true_wh)) # avoid log(0)=-inf
+        # smaller object, larger box loss scale factor
         box_loss_scale = 2 - y_true[l][...,2:3]*y_true[l][...,3:4]
 
         # Find ignore mask, iterate over each of batch.
@@ -413,6 +425,7 @@ def yolo_loss(args, anchors, num_classes, ignore_thresh=.5, print_loss=False):
 
         # K.binary_crossentropy is helpful to avoid exp overflow.
         xy_loss = object_mask * box_loss_scale * K.binary_crossentropy(raw_true_xy, raw_pred[...,0:2], from_logits=True)
+        # loss for tw, th. Squared  error loss
         wh_loss = object_mask * box_loss_scale * 0.5 * K.square(raw_true_wh-raw_pred[...,2:4])
         confidence_loss = object_mask * K.binary_crossentropy(object_mask, raw_pred[...,4:5], from_logits=True)+ \
             (1-object_mask) * K.binary_crossentropy(object_mask, raw_pred[...,4:5], from_logits=True) * ignore_mask
@@ -422,6 +435,7 @@ def yolo_loss(args, anchors, num_classes, ignore_thresh=.5, print_loss=False):
         wh_loss = K.sum(wh_loss) / mf
         confidence_loss = K.sum(confidence_loss) / mf
         class_loss = K.sum(class_loss) / mf
+        # could we add weights for different losses?
         loss += xy_loss + wh_loss + confidence_loss + class_loss
         if print_loss:
             loss = tf.Print(loss, [loss, xy_loss, wh_loss, confidence_loss, class_loss, K.sum(ignore_mask)], message='loss: ')
